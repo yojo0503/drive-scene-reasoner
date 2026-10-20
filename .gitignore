@@ -1,0 +1,23 @@
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.venv/
+.env
+*.egg-info/
+build/
+dist/
+outputs/
+checkpoints/
+runs/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+# Keep third-party images and DriveLM annotations out of git
+data/*
+!data/.gitkeep
+*.zip
+*.tar
+*.tar.gz
+third_party/

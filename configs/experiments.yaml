@@ -1,0 +1,23 @@
+# Research plan; not consumed by training CLI yet.
+base_model: Qwen/Qwen3-VL-8B-Instruct
+source_dataset: DriveLM-nuScenes-v1.1
+split_unit: scene
+seed: 42
+experiments:
+  - id: base_front
+    train: false
+    cameras: front
+  - id: base_six
+    train: false
+    cameras: all
+  - id: lora_front
+    train: true
+    cameras: front
+  - id: lora_six
+    train: true
+    cameras: all
+metrics:
+  - local_exact_match
+  - local_token_f1
+  - latency_p95
+  - peak_vram

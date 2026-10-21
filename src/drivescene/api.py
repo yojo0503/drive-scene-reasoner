@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from .data import iter_jsonl
 
-app = FastAPI(title="Drive Scene Reasoner", version="0.1.0")
+app = FastAPI(title="Drive Scene Reasoner", version="0.2.0")
 
 
 class ReasonRequest(BaseModel):
@@ -28,7 +28,12 @@ def _rows():
 @lru_cache(maxsize=1)
 def _model():
     from .infer import QwenVLReasoner
-    return QwenVLReasoner(os.environ.get("DRS_MODEL_ID", "Qwen/Qwen3-VL-8B-Instruct"))
+    return QwenVLReasoner(os.environ.get("DRS_MODEL_ID", "Qwen/Qwen3-VL-8B-Instruct"),
+        adapter_path=os.environ.get("DRS_ADAPTER"),
+        min_pixels=int(os.environ.get("DRS_MIN_PIXELS", "65536")),
+        max_pixels=int(os.environ.get("DRS_MAX_PIXELS", "262144")),
+        device_map=os.environ.get("DRS_DEVICE_MAP", "auto"),
+        local_files_only=os.environ.get("HF_HUB_OFFLINE") == "1")
 
 
 @app.get("/health")
@@ -49,6 +54,8 @@ def reason(req: ReasonRequest):
     sample = _rows().get(req.sample_id)
     if sample is None:
         raise HTTPException(404, "sample_id not in prepared local manifest")
+    if not sample["question"].strip():
+        raise HTTPException(422, "Source question is empty; no model inference performed")
     if os.environ.get("DRS_ENABLE_MODEL") != "1":
         raise HTTPException(503, "Set DRS_ENABLE_MODEL=1 to allow expensive GPU inference")
     prediction = _model().generate(sample, max_new_tokens=req.max_new_tokens)

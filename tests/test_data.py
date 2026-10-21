@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from PIL import Image
 
 from drivescene.data import build_example, load_drivelm, resolve_image_path, scene_split, to_swift_sft
 
@@ -19,7 +20,7 @@ def fixture(tmp_path):
     images = tmp_path / "nuscenes" / "samples" / "CAM_FRONT"
     images.mkdir(parents=True)
     for idx in range(3):
-        (images / f"{idx}.jpg").write_bytes(b"placeholder")
+        Image.new("RGB", (32, 24)).save(images / f"{idx}.jpg")
     return path, tmp_path / "nuscenes"
 
 

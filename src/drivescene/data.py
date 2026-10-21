@@ -8,15 +8,31 @@ from __future__ import annotations
 
 import json
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
+from functools import lru_cache
 
 CAMERAS = (
     "CAM_FRONT", "CAM_FRONT_LEFT", "CAM_FRONT_RIGHT",
     "CAM_BACK", "CAM_BACK_LEFT", "CAM_BACK_RIGHT",
 )
 TASKS = ("perception", "prediction", "planning", "behavior")
+
+
+@lru_cache(maxsize=8192)
+def _inspect_image(path: str, size: int, mtime_ns: int) -> tuple[int, int]:
+    """Cache by file identity so repeated QAs do not decode the same frame hundreds of times."""
+    from PIL import Image
+    try:
+        with Image.open(path) as image:
+            dimensions = image.size
+            image.verify()
+        with Image.open(path) as image:
+            image.load()
+    except (OSError, ValueError) as exc:
+        raise ValueError(f"Unreadable image: {path}") from exc
+    return dimensions
 
 
 @dataclass(frozen=True)
@@ -28,6 +44,10 @@ class QARecord:
     question: str
     answer: str | None
     image_paths: dict[str, str]
+    official_id: str = ""
+    qa_metadata: dict = field(default_factory=dict)
+    scene_metadata: dict = field(default_factory=dict)
+    frame_metadata: dict = field(default_factory=dict)
 
 
 def load_drivelm(path: str | Path) -> list[QARecord]:
@@ -40,18 +60,37 @@ def load_drivelm(path: str | Path) -> list[QARecord]:
 
     rows: list[QARecord] = []
     for scene_id, scene in source.items():
+        if not isinstance(scene, dict) or not isinstance(scene.get("key_frames"), dict):
+            raise ValueError(f"Invalid scene/key_frames: {scene_id}")
+        scene_meta = {k: v for k, v in scene.items() if k != "key_frames"}
         for frame_id, frame in scene.get("key_frames", {}).items():
+            if not isinstance(frame, dict):
+                raise ValueError(f"Invalid frame: {scene_id}/{frame_id}")
             images = frame.get("image_paths", {})
             if not isinstance(images, dict):
-                images = {}
+                raise ValueError(f"image_paths must be a mapping: {scene_id}/{frame_id}")
             qa_groups = frame.get("QA", {})
+            if not isinstance(qa_groups, dict):
+                raise ValueError(f"QA must be a mapping: {scene_id}/{frame_id}")
+            unknown = [k for k, v in qa_groups.items() if k not in TASKS and v]
+            if unknown:
+                raise ValueError(f"Unsupported task groups {unknown}; refusing silent data loss")
+            frame_meta = {k: v for k, v in frame.items() if k not in ("QA", "image_paths")}
+            official_index = 0
             for task in TASKS:
-                for i, qa in enumerate(qa_groups.get(task, [])):
+                group = qa_groups.get(task, [])
+                if not isinstance(group, list):
+                    raise ValueError(f"QA.{task} must be a list")
+                for i, qa in enumerate(group):
+                    official_id = f"{scene_id}_{frame_id}_{official_index}"
+                    official_index += 1
+                    if not isinstance(qa, dict):
+                        raise ValueError(f"Invalid QA record: {official_id}")
                     question = qa.get("Q", "")
-                    if not isinstance(question, str) or not question.strip():
-                        continue
+                    if not isinstance(question, str):
+                        raise ValueError(f"Non-string question: {official_id}")
                     answer = qa.get("A")
-                    answer = str(answer) if answer is not None else None
+                    answer = str(answer) if answer is not None and str(answer).strip() else None
                     rows.append(
                         QARecord(
                             sample_id=f"{scene_id}:{frame_id}:{task}:{i}",
@@ -61,6 +100,10 @@ def load_drivelm(path: str | Path) -> list[QARecord]:
                             question=question.strip(),
                             answer=answer,
                             image_paths={str(k): str(v) for k, v in images.items()},
+                            official_id=official_id,
+                            qa_metadata=dict(qa),
+                            scene_metadata=scene_meta,
+                            frame_metadata=frame_meta,
                         )
                     )
     return rows
@@ -74,7 +117,7 @@ def resolve_image_path(original: str, image_root: str | Path) -> Path:
     """
     image_root = Path(image_root).expanduser().resolve()
     original_path = Path(original)
-    if original_path.is_absolute() and original_path.exists():
+    if original_path.is_absolute() and original_path.is_file():
         return original_path
     raw = original.replace("\\", "/")
     if "/samples/" in f"/{raw}":
@@ -85,6 +128,8 @@ def resolve_image_path(original: str, image_root: str | Path) -> Path:
     else:
         # Be conservative: no trust in arbitrary nested ../ in dataset annotations.
         subpath = Path(original_path.name)
+    if ".." in subpath.parts:
+        raise ValueError(f"Unsafe image path: {original}")
     candidates = [image_root / subpath]
     if subpath.parts and subpath.parts[0] == "samples":
         candidates.append(image_root / Path(*subpath.parts[1:]))
@@ -110,32 +155,41 @@ def build_example(row: QARecord, image_root: str | Path, cameras: str = "all", v
     if cameras not in ("all", "front"):
         raise ValueError("cameras must be 'all' or 'front'")
     wanted = ("CAM_FRONT",) if cameras == "front" else CAMERAS
+    missing = [cam for cam in wanted if not row.image_paths.get(cam)]
+    if missing:
+        raise ValueError(f"Missing requested cameras for {row.sample_id}: {', '.join(missing)}")
     selected: list[tuple[str, Path]] = []
+    sizes = {}
     for cam in wanted:
         if cam in row.image_paths:
             resolved = resolve_image_path(row.image_paths[cam], image_root)
             if validate_images and not resolved.is_file():
                 raise FileNotFoundError(f"Missing image {cam} for {row.sample_id}: {resolved}")
+            if validate_images:
+                stat = resolved.stat()
+                sizes[cam] = list(_inspect_image(str(resolved), stat.st_size, stat.st_mtime_ns))
             selected.append((cam, resolved))
     if not selected:
         raise ValueError(f"No requested camera views for {row.sample_id}")
-    image_header = "\n".join(f"{cam}: <image>" for cam, _ in selected)
-    prompt = (
-        "You are analyzing a driving scene for offline research. "
-        "Answer only from visible evidence. If evidence is insufficient, state uncertainty. "
-        "Do not claim to control the vehicle.\n"
-        f"Task: {row.task}\n{image_header}\nQuestion: {row.question}"
-    )
+    from .prompts import build_prompt
+    prompt = build_prompt(row.task, row.question, [cam for cam, _ in selected])
     return {
         "id": row.sample_id,
+        "official_id": row.official_id,
         "scene_id": row.scene_id,
         "frame_id": row.frame_id,
         "task": row.task,
         "question": row.question,
+        "question_valid": bool(row.question.strip()),
         "answer": row.answer,
         "camera_names": [cam for cam, _ in selected],
         "images": [str(p) for _, p in selected],
         "prompt": prompt,
+        "image_sizes": sizes,
+        "images_validated": validate_images,
+        "qa_metadata": row.qa_metadata,
+        "scene_metadata": row.scene_metadata,
+        "frame_metadata": row.frame_metadata,
     }
 
 
@@ -158,7 +212,9 @@ def dump_jsonl(path: str | Path, records: Iterator[dict] | list[dict]) -> int:
 
 
 def to_swift_sft(sample: dict) -> dict:
-    if sample["answer"] is None:
+    if not sample["question"].strip():
+        raise ValueError("Empty source questions cannot be used for supervised training")
+    if sample["answer"] is None or not str(sample["answer"]).strip():
         raise ValueError("Question-only examples cannot be used for supervised training")
     return {
         "messages": [

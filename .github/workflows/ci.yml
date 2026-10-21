@@ -13,3 +13,4 @@ jobs:
       - run: python -m pip install -e '.[dev]'
       - run: pytest -q
       - run: python -m compileall -q src
+      - run: bash -n scripts/train_lora.sh

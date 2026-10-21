@@ -30,16 +30,46 @@ def token_f1(prediction: str, reference: str) -> float:
     return 2 * precision * recall / (precision + recall)
 
 
-def evaluate(manifest_path: str | Path, predictions_path: str | Path) -> dict:
-    refs = {row["id"]: row for row in iter_jsonl(manifest_path)}
-    preds = {row["id"]: row.get("prediction", "") for row in iter_jsonl(predictions_path)}
+def unique_rows(rows, label="records") -> dict:
+    result = {}
+    for row in rows:
+        key = row.get("id")
+        if not isinstance(key, str) or not key:
+            raise ValueError(f"Missing/non-string id in {label}")
+        if key in result:
+            raise ValueError(f"Duplicate id in {label}: {key}")
+        result[key] = row
+    return result
+
+
+def checked_predictions(refs, predictions_path):
+    rows = unique_rows(iter_jsonl(predictions_path), "predictions")
+    unknown = set(rows) - set(refs)
+    if unknown:
+        raise ValueError(f"Unknown prediction IDs: {sorted(unknown)[:5]}")
+    for key, row in rows.items():
+        if not isinstance(row.get("prediction"), str):
+            raise ValueError(f"Prediction must be a string: {key}")
+    return {key: row["prediction"] for key, row in rows.items()}
+
+
+def evaluate(manifest_path: str | Path, predictions_path: str | Path, missing_policy: str = "error") -> dict:
+    if missing_policy not in ("error", "wrong"):
+        raise ValueError("missing_policy must be error or wrong")
+    refs = unique_rows(iter_jsonl(manifest_path), "manifest")
+    preds = checked_predictions(refs, predictions_path)
+    labeled = {key: row for key, row in refs.items() if row.get("answer") is not None}
+    if not labeled:
+        raise ValueError("No labeled references to evaluate")
+    missing = set(labeled) - set(preds)
+    if missing and missing_policy == "error":
+        raise ValueError(f"Missing predictions for {len(missing)} labeled examples; use --missing-policy wrong to count them as errors")
     groups: dict[str, list[tuple[float, float]]] = defaultdict(list)
-    for sample_id, row in refs.items():
-        if sample_id not in preds or row.get("answer") is None:
-            continue
+    for sample_id, row in labeled.items():
         answer = str(row["answer"])
-        pred = str(preds[sample_id])
-        groups[row["task"]].append((float(normalize_answer(pred) == normalize_answer(answer)), token_f1(pred, answer)))
+        pred = preds.get(sample_id, "")
+        pair = (0.0, 0.0) if sample_id in missing else (float(normalize_answer(pred) == normalize_answer(answer)), token_f1(pred, answer))
+        groups[row["task"]].append(pair)
 
     def score(pairs: list[tuple[float, float]]) -> dict:
         if not pairs:
@@ -51,6 +81,9 @@ def evaluate(manifest_path: str | Path, predictions_path: str | Path) -> dict:
     return {
         "metrics_note": "Local normalized exact match / token F1, not official DriveLM leaderboard metrics",
         "references": len(refs), "predictions": len(preds),
+        "labeled_references": len(labeled), "missing_predictions": len(missing),
+        "coverage": round((len(labeled) - len(missing)) / len(labeled), 6),
+        "missing_policy": missing_policy,
         "evaluated": len(all_pairs), "overall": score(all_pairs),
         "by_task": {task: score(pairs) for task, pairs in sorted(groups.items())},
     }

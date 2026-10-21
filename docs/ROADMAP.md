@@ -1,35 +1,24 @@
-# Milestone roadmap
+# Roadmap
 
-## M0: Repository / data compatibility (now)
-- [x] Independent source layout + pyproject packaging
-- [x] DriveLM nested JSON reader and camera path resolution
-- [x] Scene-level holdout split and Swift-format exporter
-- [x] CPU tests + synthetic toy dataset generator
-- [x] Qwen3-VL inference adapter and *unverified* ms-swift LoRA config
-- [x] Local normalized QA evaluator (not leaderboard scoring)
-- [x] Local-only API starter
+## Completed v0.2 engineering
 
-## M1: Verified baseline (first milestone)
-- [ ] Download a licensed DriveLM dataset subset and verify images/QA alignment
-- [ ] Qwen3-VL-8B base inference on 100+ held-out samples
-- [ ] Front-only versus 6-view comparison with OOM/latency logging
-- [ ] Add one official DriveLM task metric as a separate evaluator
-- [ ] Confirm GPU/driver/memory requirements for number of RTX 3090s available
+- Strict requested-camera checks, image decoding, dimensions and repeated-frame validation cache.
+- Labeled scene holdouts and separate question-only inference preparation.
+- Original QA/scene/frame metadata, graph sidecars and official result IDs.
+- Missing/duplicate/unknown prediction checks, coverage and missing-as-wrong mode.
+- Official output export and an explicitly limited tag-0 metric adapter.
+- Shared prompts, LoRA loader wiring, image budget/device/revision options.
+- JSON training recipe, validation set, snapshots and checkpoint-resume wiring.
+- Revision-pinned, resumable and hash-checked downloads; safe image archive extraction.
+- CPU regression tests and an official public demo data preparation check.
 
-## M2: Domain adaptation
-- [ ] LoRA 8B SFT on DriveLM train scenes
-- [ ] Adapter loading in inference engine
-- [ ] Seeded experiments, config snapshots and loss curves
-- [ ] Failure-case categorization across task families
+## Next, only after separate user authorization
 
-## M3: Reasoning research
-- [ ] Grounded evidence extraction and object tag evaluation
-- [ ] Scene graph / staged perception-prediction-planning QA
-- [ ] Dynamic per-question camera selection
-- [ ] Visual token/accuracy/latency trade-offs
+- Resolve/install the pinned GPU environment and verify model loading.
+- Run a held-out-scene base-model benchmark and measure memory/latency.
+- Run a small LoRA training experiment and reload its checkpoint for the same benchmark.
+- Compare front-only and six-camera performance on suitable question subsets.
+- Implement stage-conditioned Graph VQA and grounded object metrics.
+- Integrate complete upstream scoring with a controlled judge configuration.
 
-## M4: Demo engineering
-- [ ] Scene browsing web frontend
-- [ ] Video/multi-camera synchronization viewer
-- [ ] Batch inference jobs and experiment dashboard
-- [ ] Safe, offline report exports
+No training or inference is part of the v0.2 setup task.

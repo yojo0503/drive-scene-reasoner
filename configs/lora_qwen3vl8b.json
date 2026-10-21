@@ -1,0 +1,11 @@
+{
+  "model": "Qwen/Qwen3-VL-8B-Instruct",
+  "dataset": "data/processed/train_swift.jsonl",
+  "val_dataset": "data/processed/val_swift.jsonl",
+  "gpu_count": 2,
+  "min_image_tokens": 64,
+  "max_image_tokens": 256,
+  "max_length": 4096,
+  "seed": 42,
+  "output_dir": "outputs/qwen3vl8b_lora"
+}

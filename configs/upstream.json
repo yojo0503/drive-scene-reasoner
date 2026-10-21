@@ -1,0 +1,15 @@
+{
+  "DriveLM": {
+    "repository": "https://github.com/OpenDriveLab/DriveLM",
+    "commit": "1de72a74b257e5373400fa68239e99bd5d20580a"
+  },
+  "model": {
+    "repository": "Qwen/Qwen3-VL-8B-Instruct",
+    "revision": "0c351dd01ed87e9c1b53cbc748cba10e6187ff3b"
+  },
+  "dataset": {
+    "repository": "OpenDriveLab/DriveLM",
+    "revision": "ae973fbd4e8d4684af4ab234d504bd6c5e946868"
+  },
+  "ms_swift": "4.6.0"
+}

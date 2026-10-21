@@ -1,5 +1,6 @@
-# Research plan; not consumed by training CLI yet.
+# Comparison matrix only. Executable training settings: lora_qwen3vl8b.json.
 base_model: Qwen/Qwen3-VL-8B-Instruct
+model_revision: 0c351dd01ed87e9c1b53cbc748cba10e6187ff3b
 source_dataset: DriveLM-nuScenes-v1.1
 split_unit: scene
 seed: 42

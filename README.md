@@ -1,140 +1,184 @@
 # Drive Scene Reasoner
 
-[中文说明](README.zh-CN.md)
+[中文说明](README.zh-CN.md) · [Changelog](CHANGELOG.md) · [DriveLM compatibility](docs/DRIVELM_COMPATIBILITY.md)
 
-DriveLM-nuScenes data preparation, multi-camera QA interfaces and Qwen3-VL LoRA workflows.
-Version 0.2. CPU behavior is tested. Real model loading, generation and training have not been run.
+A Qwen3-VL project for driving-scene question answering, following DriveLM-nuScenes data structures and result IDs. It provides six-camera data preparation, optional LoRA loading, training configuration and evaluation tools.
 
-## Current goal
+## Goal and status
 
-Build a working DriveLM-nuScenes-style multi-camera question answering system with Qwen3-VL. Given six synchronized camera views and a question, the first milestone is to answer four task families: perception (what is present), prediction (what may happen), planning QA (what behavior is appropriate and why), and behavior (how the ego vehicle is moving).
+The first goal is to answer questions from six synchronized camera views across four task families: perception, prediction, planning QA and ego-vehicle behavior.
 
-The current engineering milestone provides verified data preparation, original metadata retention, model/LoRA interfaces and evaluation plumbing. The next milestone is a separately authorized GPU baseline, followed by a base-versus-LoRA comparison on the same held-out scenes. Stage-conditioned Graph VQA follows that baseline; it is not implemented yet. See [changes](CHANGELOG.md) and [roadmap](docs/ROADMAP.md).
+Version **0.2** has verified CPU data workflows and regression tests. GPU inference, training quality and memory requirements remain unvalidated. The next milestones are a base-model benchmark on held-out scenes, a base-versus-LoRA comparison, and then stage-conditioned Graph VQA. Retaining graph fields does not implement graph execution.
 
 ## Framework
 
 ```mermaid
 flowchart LR
-  A[DriveLM JSON and six-camera images] --> B[Strict validation and original metadata]
-  B --> C[Scene-separated SFT and local validation]
+  A[DriveLM JSON and six-camera images] --> B[Image validation and original metadata]
+  B --> C[Scene-separated training and local validation]
   B --> D[Complete question-only manifest]
   C --> E[Qwen3-VL with optional LoRA]
   D --> E
-  E --> F[Answers and coverage-aware local evaluation]
+  E --> F[Answers and coverage-aware evaluation]
   F --> G[Official DriveLM result export]
 ```
 
-The Qwen3-VL stage is wired in code but has not been executed in the current setup. The directory responsibilities are listed below; [Chinese usage and framework](README.zh-CN.md) provide server-specific commands.
+| Component | Responsibility |
+| --- | --- |
+| `src/drivescene/data.py`, `prepare.py` | Parse annotations, validate cameras/images, split scenes and preserve original metadata |
+| `prompts.py`, `infer.py` | Shared user prompt and base-model/LoRA inference interface |
+| `eval.py`, `protocol.py` | Prediction completeness, local metrics and official result export |
+| `api.py` | Local HTTP API using prepared sample IDs |
+| `configs/lora_qwen3vl8b.json`, `scripts/training_plan.py` | Training configuration, preflight checks, snapshots and resume |
+| `scripts/download_assets.py`, `extract_dataset.py` | Resumable downloads, integrity checks and archive extraction |
+| `tests/` | CPU regressions without loading real models |
 
-## What follows DriveLM
+Original QA fields, object boxes and source dependencies are retained in manifests and frame graph sidecars, never inserted into model user prompts. Missing dependencies are not invented.
 
-The parser retains original QAs (including C, con_up, con_down, cluster, layer, tag and unknown fields), scene/frame metadata and key_object_infos. Each record has a stable internal ID and an official ID: scene_frame_index, where the index follows perception + prediction + planning + behavior within the source frame. Filtering does not renumber IDs.
+## 1. Install and check the CPU workflow
 
-Graph sidecars preserve complete source QAs for retained frames; they do not infer edges or include annotation answers in model inputs. The model backend remains Qwen3-VL rather than the upstream LLaMA-Adapter baseline.
-
-## CPU setup
+Python 3.10+ is required; Python 3.11 is recommended. Examples use Linux/WSL Bash. Install Python's venv support or use a Conda environment; asset downloads also require `curl`.
 
 ```bash
-python -m venv .venv
+git clone https://github.com/yojo0503/drive-scene-reasoner.git
+cd drive-scene-reasoner
+
+python3 -m venv .venv
 source .venv/bin/activate
-pip install -e '.[dev]'
+python -m pip install -e '.[dev]'
 pytest -q
+
 python scripts/make_toy_data.py --output data/toy
 drivescene prepare --input data/toy/drivelm_train.json \
-  --image-root data/toy/nuscenes --output data/toy_processed --cameras all
+  --image-root data/toy/nuscenes \
+  --output data/toy_processed --purpose sft --cameras all
 ```
 
-All requested cameras must exist. By default every image is decoded and its dimensions recorded. Repeated QAs reuse a file-identity-based validation cache. The explicitly named --allow-missing-images option is for format checks only; training plans reject such artifacts.
+This synthetic fixture checks data formatting without a GPU or weights. It is not a driving benchmark, and its outputs are kept separate from real prepared data.
 
-## Labeled training preparation
+## 2. Choose storage paths
+
+These are example directories relative to the checkout. Replace them with your storage locations if needed, and set the variables again in new terminals.
 
 ```bash
-drivescene prepare --input data/drivelm/v1_1_train_nus.json \
-  --image-root data/nuscenes --output data/processed \
-  --purpose sft --cameras all --val-fraction 0.1 --seed 42
+export DATA_ROOT="$PWD/data/drivelm"
+export MODEL_DIR="$PWD/checkpoints/Qwen3-VL-8B-Instruct"
 ```
 
-Produces train/val_manifest.jsonl, train/val_swift.jsonl, frame_graphs.jsonl and preparation.json. Splits are by scene. Provenance records the input hash, output hashes, retained tasks, selected cameras and scene membership. --limit-per-split limits retained examples before image validation; it is an ordered debugging subset, not a balanced benchmark.
+`data/`, `checkpoints/` and `outputs/` are ignored by Git. Keep data, weights and credentials out of commits.
 
-## Question-only inference preparation
+## 3. Download data and weights
+
+Read the [official DriveLM instructions](https://github.com/OpenDriveLab/DriveLM/tree/main/challenge), obtain access to the [dataset](https://huggingface.co/datasets/OpenDriveLab/DriveLM), and log in with an approved Hugging Face account.
 
 ```bash
-drivescene prepare --input data/drivelm/v1_1_val_nus_q_only.json \
-  --image-root data/val_data --output data/challenge \
-  --purpose infer --cameras all
+python -m pip install huggingface_hub
+hf auth login
+
+python scripts/download_assets.py \
+  --repo OpenDriveLab/DriveLM --kind dataset \
+  --revision ae973fbd4e8d4684af4ab234d504bd6c5e946868 \
+  --include v1_1_train_nus.json v1_1_val_nus_q_only.json \
+    drivelm_nus_imgs_train.zip drivelm_nus_imgs_val.zip \
+  --output "$DATA_ROOT"
+
+python scripts/extract_dataset.py \
+  "$DATA_ROOT/drivelm_nus_imgs_train.zip" \
+  "$DATA_ROOT/drivelm_nus_imgs_val.zip" \
+  --output "$DATA_ROOT/images"
+
+python scripts/download_assets.py \
+  --repo Qwen/Qwen3-VL-8B-Instruct \
+  --revision 0c351dd01ed87e9c1b53cbc748cba10e6187ff3b \
+  --output "$MODEL_DIR"
 ```
 
-Produces infer_manifest.jsonl without splitting or dropping unanswered questions, and without SFT files. Choose a different output directory from training preparation.
+Downloads resume and verify pinned upstream hashes, then create `asset_inventory.json`. Extraction checks ZIP paths and entry CRCs. Neither operation loads a model.
 
-The official image archives use different roots: training images extract to nuscenes/samples, while validation images extract to val_data. Pass the appropriate root for each source. Actual server paths are in [server setup](docs/SERVER_SETUP.md).
+Training images extract to `images/nuscenes/samples/CAM_*/`; validation images extract to `images/val_data/CAM_*/`. Use the correct root for each annotation file.
 
-The official v1.1 question-only source contains one blank question. Its original ID is retained with question_valid=false. SFT excludes blank questions; the inference CLI records an empty prediction with status=invalid_source_question instead of fabricating a question or calling generate for that record.
-
-## Evaluation and upstream interoperability
+## 4. Prepare labeled training and local validation
 
 ```bash
-drivescene eval --manifest data/processed/val_manifest.jsonl --predictions outputs/predictions.jsonl
-# Explicitly count missing answers as wrong:
-drivescene eval --manifest data/processed/val_manifest.jsonl --predictions outputs/predictions.jsonl --missing-policy wrong
-drivescene export-official --manifest data/challenge/infer_manifest.jsonl \
-  --predictions outputs/challenge_predictions.jsonl --output outputs/official_output.json
+drivescene prepare --input "$DATA_ROOT/v1_1_train_nus.json" \
+  --image-root "$DATA_ROOT/images/nuscenes" \
+  --output data/processed --purpose sft \
+  --cameras all --val-fraction 0.1 --seed 42
 ```
 
-Duplicate and unknown IDs are errors. Missing labeled predictions are errors by default. Reports include coverage; missing-as-wrong keeps every labeled reference in the denominator. Official export requires every manifest prediction and emits the upstream list of id/answer dictionaries.
+Outputs are train/val manifests, train/val Swift JSONL, `frame_graphs.jsonl` and `preparation.json`. The latter records source/output hashes, scene assignments and settings.
 
-eval-tag0 implements the upstream tag-0 exact string comparison on explicitly tagged, labeled records. It does not apply upstream graph eligibility filtering, call a judge, or compute the official combined score. For the full workflow see [compatibility notes](docs/DRIVELM_COMPATIBILITY.md).
+Splits are grouped by scene. All requested cameras must exist and decode successfully. `--cameras front` supports a front-only comparison, and `--limit-per-split` limits debugging subsets. `--allow-missing-images` is for format checks only and is rejected by training preflight.
 
-## Model and LoRA interfaces
+## 5. Prepare official question-only inputs
 
 ```bash
-pip install -e '.[vision,lora]'
-# Optional future invocation; it loads and executes a model:
+drivescene prepare --input "$DATA_ROOT/v1_1_val_nus_q_only.json" \
+  --image-root "$DATA_ROOT/images/val_data" \
+  --output data/challenge --purpose infer --cameras all
+```
+
+This prepares `infer_manifest.jsonl` without running a model. It keeps all source question IDs and creates no SFT data. Official question-only inputs have no public answers and cannot be scored locally.
+
+Empty answers are excluded from SFT. Blank questions retain their official IDs with `question_valid=false`; batch inference records an empty prediction and explicit status for them instead of invoking generation.
+
+## 6. Run the base model or a LoRA adapter
+
+Use a compatible NVIDIA GPU/PyTorch/CUDA environment. A dedicated Python 3.11 environment can use the [pinned GPU recipe](requirements/gpu-cu128.txt); runtime compatibility and memory fit still require validation. Explicitly select available devices with `CUDA_VISIBLE_DEVICES` before GPU execution.
+
+```bash
+python -m pip install -e '.[vision,lora]'
 drivescene infer --manifest data/processed/val_manifest.jsonl \
-  --model /path/to/Qwen3-VL-8B-Instruct --adapter /path/to/adapter \
-  --local-files-only --min-pixels 65536 --max-pixels 262144 \
+  --model "$MODEL_DIR" --local-files-only \
+  --min-pixels 65536 --max-pixels 262144 \
   --limit 0 --output outputs/predictions.jsonl
 ```
 
---adapter is optional. SFT and inference share the same user prompt and camera order. Image budget defaults to 64–256 visual tokens per image (32×32 pixels per token); this is a starting configuration, not a validated quality/memory trade-off.
+`--limit 0` processes the full manifest; `--limit 5` is a partial smoke run. Add `--adapter checkpoints/your_adapter` to load an existing LoRA checkpoint. Use `drivescene infer --help` for device and image-budget options.
 
-Before a GPU invocation, explicitly select available devices with CUDA_VISIBLE_DEVICES. --limit 0 covers the entire manifest; --limit 5 is only a partial smoke run and will not pass strict evaluation against a full manifest.
-
-## Local API
+## 7. Evaluate or export official results
 
 ```bash
-pip install -e '.[api]'
+drivescene eval --manifest data/processed/val_manifest.jsonl \
+  --predictions outputs/predictions.jsonl
+
+# 如需明确把漏答计为错误
+drivescene eval --manifest data/processed/val_manifest.jsonl \
+  --predictions outputs/predictions.jsonl --missing-policy wrong
+```
+
+Missing labeled predictions, duplicate IDs and unknown IDs are errors by default; reports include coverage. A partial smoke run cannot pass strict evaluation against a full manifest. Local Exact Match and token F1 are not the official combined score.
+
+After running the model on `data/challenge/infer_manifest.jsonl` and saving complete predictions to `outputs/challenge_predictions.jsonl`, export them with:
+
+```bash
+drivescene export-official --manifest data/challenge/infer_manifest.jsonl \
+  --predictions outputs/challenge_predictions.jsonl \
+  --output outputs/official_output.json
+```
+
+Export requires every manifest prediction. `eval-tag0` requires existing tags and labeled answers; it omits upstream graph eligibility filtering and combined scoring. See the [compatibility notes](docs/DRIVELM_COMPATIBILITY.md).
+
+## 8. Validate a LoRA training plan
+
+```bash
+bash scripts/train_lora.sh --dry-run --model "$MODEL_DIR"
+```
+
+The planner reads `configs/lora_qwen3vl8b.json`, checks validation data, scene separation, image validation and artifact hashes, and prints the command without loading a model. Use `--config` and CLI overrides to change settings.
+
+Actual training additionally requires `--execute`, tmux, a clean Git commit and explicit `CUDA_VISIBLE_DEVICES` matching the GPU count. It saves configuration/package/data snapshots and supports `--resume-from-checkpoint`. The starting recipe is not a proven memory-fitting configuration.
+
+## 9. Use the local HTTP API
+
+```bash
+python -m pip install -e '.[api]'
 DRS_MANIFEST=data/challenge/infer_manifest.jsonl \
   uvicorn drivescene.api:app --host 127.0.0.1 --port 8000
 ```
 
-GET /health and GET /v1/samples work without loading a model. POST /v1/reason accepts a prepared sample_id. GPU answering additionally needs the vision dependencies and DRS_ENABLE_MODEL=1, with DRS_MODEL_ID pointing to the base model; DRS_ADAPTER optionally selects a LoRA directory. This setup task did not start the API or execute GPU answering.
-
-## Training recipe (not executed in setup)
-
-```bash
-# CPU-only plan validation; this does not load a model:
-bash scripts/train_lora.sh --dry-run
-```
-
-configs/lora_qwen3vl8b.json is consumed by the planner; CLI overrides win, and legacy MODEL_ID/DATASET/VAL_DATASET/GPU_COUNT environment variables override file defaults. The planner checks artifact hashes, image validation and scene separation. It requires an explicit validation set and supports --resume-from-checkpoint.
-
-An actual launch additionally requires --execute, a tmux session, explicitly selected CUDA_VISIBLE_DEVICES and the pinned ms-swift version. Run metadata, package versions, pip freeze, data hashes and model inventory hash are saved before launch. See [GPU recipe](requirements/gpu-cu128.txt). Distribution availability was checked; dependency resolution and GPU memory fit still need validation.
-
-## Downloads
-
-scripts/download_assets.py downloads a pinned repository revision, resumes partial files and checks upstream SHA256 (large files) or Git blob SHA1 (small files), then writes asset_inventory.json. It does not import torch. Tokens are read from HF_TOKEN or the user cache and are sent only to the official Hugging Face host. For public Qwen models, --modelscope-weights uses the official Qwen mirror with the original pinned SHA256.
-
-scripts/extract_dataset.py rejects unsafe ZIP paths/symlinks and verifies archive-entry CRC during extraction and resume. Data and weights stay outside Git. Server paths and verification state are recorded in docs/SERVER_SETUP.md.
-
-## Layout
-
-- src/drivescene/data.py, prepare.py: source data, strict views, preparation and graph sidecars.
-- prompts.py, infer.py, api.py: shared prompt, optional Qwen+LoRA and local API.
-- eval.py, protocol.py: strict local scores and official result IDs.
-- scripts/training_plan.py: validation, configuration snapshots and explicit launch.
-- scripts/download_assets.py, extract_dataset.py: verified assets.
-- tests/: CPU regressions with synthetic and stubbed model contracts.
+`GET /health` and `GET /v1/samples` work without a model. `POST /v1/reason` accepts a `sample_id` from the prepared manifest. Model answers require vision dependencies, `DRS_MODEL_ID` and explicit `DRS_ENABLE_MODEL=1`; `DRS_ADAPTER` optionally selects a LoRA checkpoint.
 
 ## Attribution
 
-No upstream code, annotations, images or weights are bundled in this repository. Upstream references are pinned in configs/upstream.json. DriveLM language data is CC BY-NC-SA 4.0; nuScenes has separate terms. See [upstream notices](docs/UPSTREAM.md). This repository's original code has no project license selected yet.
+Upstream references are pinned in `configs/upstream.json`. No DriveLM annotations, images or model weights are bundled. DriveLM language data is CC BY-NC-SA 4.0; nuScenes has separate terms. See [upstream notices](docs/UPSTREAM.md). This repository's original code has no project license selected yet.

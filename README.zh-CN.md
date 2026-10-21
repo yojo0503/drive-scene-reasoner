@@ -1,19 +1,21 @@
-# Drive Scene Reasoner 中文说明
+# Drive Scene Reasoner
 
-当前版本为 **0.2**。本次补齐了五项工程问题，并验证 CPU 数据流程；没有运行真实模型加载、推理、训练或付费评测。
+基于 Qwen3-VL 的驾驶场景多模态问答项目，参考 DriveLM-nuScenes 的数据结构和结果协议，提供六视角数据准备、问答推理接口、LoRA 微调入口与评测工具。
 
-## 当前目标
+[English](README.md) · [更新记录](CHANGELOG.md) · [DriveLM 对齐说明](docs/DRIVELM_COMPATIBILITY.md)
 
-第一阶段目标是实现与 DriveLM-nuScenes 同类的驾驶场景多模态问答：输入同一时刻的六路摄像头图片和问题，由 Qwen3-VL 给出回答，覆盖四类任务。
+## 当前目标与进度
 
-| 任务 | 要解决的问题 |
+第一阶段目标：输入同一时刻的六路摄像头图片和一个问题，输出驾驶场景回答，覆盖以下任务。
+
+| 任务 | 问题示例 |
 | --- | --- |
-| 感知 perception | 场景里有哪些车辆、行人、信号灯，它们是什么状态？ |
-| 预测 prediction | 相关交通参与者接下来可能怎样运动？ |
-| 规划问答 planning | 自车适合采取什么行为，理由是什么？ |
+| 感知 perception | 前方有哪些车辆、行人或信号灯，它们处于什么状态？ |
+| 预测 prediction | 相关车辆或行人接下来可能怎样运动？ |
+| 规划问答 planning | 自车适合采取什么行为，为什么？ |
 | 自车行为 behavior | 自车当前的运动与驾驶行为是什么？ |
 
-当前已完成数据和工程准备。下一阶段才验证真实 GPU 推理、显存与耗时，再比较基座模型和 LoRA 微调后的问答效果；随后研究问题之间的分阶段依赖推理。本轮没有执行这些 GPU 工作。
+当前版本为 **0.2**：数据处理和 CPU 回归测试已验证，提供 Qwen3-VL 与 LoRA 的加载接口及训练配置。真实 GPU 推理、训练效果和显存需求仍待验证。后续先建立基座模型的问答基线，再比较 LoRA 微调效果，之后研究分阶段 Graph VQA（让感知、预测、规划问题按依赖关系串联推理）。
 
 ## 项目框架
 
@@ -21,7 +23,7 @@
 flowchart LR
   A[DriveLM标注与六视角图片] --> B[图片校验和原始字段保留]
   B --> C[按场景划分训练与本地验证]
-  B --> D[保留全部官方无答案问题]
+  B --> D[保留官方无答案问题]
   C --> E[Qwen3-VL基座与可选LoRA]
   D --> E
   E --> F[逐题回答与完整性评测]
@@ -30,103 +32,180 @@ flowchart LR
 
 | 文件或目录 | 作用 |
 | --- | --- |
-| src/drivescene/data.py、prepare.py | 读取原始标注、检查六视角、划分场景、生成数据和原始问题结构文件 |
-| prompts.py、infer.py | 统一用户提示词，提供基座及 LoRA 推理入口 |
-| eval.py、protocol.py | 检查结果完整性、计算本地指标、导出官方结果 ID |
-| api.py | 用已有样本 ID 提供本地 HTTP 问答接口 |
-| scripts/training_plan.py、configs/lora_qwen3vl8b.json | 检查训练计划，管理验证集、图像预算、断点与版本快照 |
-| scripts/download_assets.py、extract_dataset.py | 下载、哈希校验和安全解压 |
-| tests/ | 不执行真实模型的 CPU 回归测试 |
+| `src/drivescene/data.py`、`prepare.py` | 读取标注、检查图片、划分场景、保留原始问题结构 |
+| `prompts.py`、`infer.py` | 统一用户提示词，提供基座与 LoRA 推理接口 |
+| `eval.py`、`protocol.py` | 检查预测完整性、计算本地指标、导出官方结果 |
+| `api.py` | 通过已有样本 ID 提供本地 HTTP 接口 |
+| `configs/lora_qwen3vl8b.json` | 训练数据、图像预算、随机种子等配置 |
+| `scripts/training_plan.py` | 检查训练计划，保存运行配置并支持断点续训 |
+| `scripts/download_assets.py`、`extract_dataset.py` | 下载、校验和解压数据及模型 |
+| `tests/` | 不加载真实模型的 CPU 回归测试 |
 
-详细更新记录见 [CHANGELOG.md](CHANGELOG.md)。
+原始问答字段、对象框及问题依赖保存在数据清单与 `frame_graphs.jsonl` 中，不加入模型的用户提示词。保留这些信息不代表已经实现图推理；项目也不生成原标注中不存在的依赖关系。
 
-## 已完成的更新
+## 1. 安装与 CPU 快速检查
 
-1. **六视角严格检查**：选择 all 时必须有六路摄像头；默认解码每张图片，记录尺寸，损坏图片立即报错。
-2. **完整评测**：重复 ID、未知 ID、缺失预测默认报错。只有明确选择 missing-policy wrong 时才把漏答计错，报告同时显示覆盖率。
-3. **无答案数据保留**：purpose infer 保留所有问题，不划分训练/验证，不生成训练文件。purpose sft 专用于有答案数据。
-4. **保留 DriveLM 原始结构**：原始问答字段、问题依赖、分组、层级、对象框和场景信息都会保留。每个样本同时有内部 ID 和官方 ID；筛选样本不会重新编号。frame_graphs.jsonl 保留被选中帧的完整原始问题。
-5. **补齐微调后使用流程**：推理接口支持“基座模型 + LoRA 参数”；训练与推理使用同一用户提示词；训练配置包含独立验证集、图像预算、随机种子、版本快照和断点续训。
-
-保留图结构信息不等于已经实现分阶段 Graph VQA 推理。本次没有根据标注猜测依赖，也没有把标注答案、对象说明或场景描述偷偷加入模型输入。
-
-## 在服务器使用
+要求 Python 3.10+，推荐 Python 3.11。以下命令使用 Linux / WSL 的 Bash；下载工具还需要 `curl`。创建虚拟环境需安装对应 Python 的 venv 支持，也可以使用 Conda 环境。
 
 ```bash
-cd /home/yyh/Github/drive-scene-reasoner
+git clone https://github.com/yojo0503/drive-scene-reasoner.git
+cd drive-scene-reasoner
+
+python3 -m venv .venv
 source .venv/bin/activate
+python -m pip install -e '.[dev]'
+
 pytest -q
+python scripts/make_toy_data.py --output data/toy
+drivescene prepare --input data/toy/drivelm_train.json \
+  --image-root data/toy/nuscenes \
+  --output data/toy_processed --purpose sft --cameras all
 ```
 
-现有 .venv 用于 CPU 数据与工程检查。GPU 依赖请将来在独立 Python 3.11 环境中按 requirements/gpu-cu128.txt 安装，不要直接套用现有 CPU 环境。
+该流程生成合成图片并检查数据格式，不需要 GPU 或模型权重。合成数据不能用于判断驾驶问答效果，输出与真实数据分开存放。
 
-服务器实际资源位置与检查结果见 [SERVER_SETUP.md](docs/SERVER_SETUP.md)。
+## 2. 设置数据和模型位置
 
-服务器已准备好全量清单：data/processed 下有 339,357 条训练样本和 38,598 条本地有标签验证样本，data/challenge 下有 15,480 条官方无答案问题。下面的 prepare 命令用于需要重新生成数据时；正常使用可以直接读取现有清单。
-
-## 准备有答案数据
+以下位置是项目内的示例目录，也可以改为自己的存储位置。后续命令使用相同变量；新终端中需要重新设置。
 
 ```bash
-drivescene prepare --input /home/yyh/datasets/DriveLM/v1.1/v1_1_train_nus.json \
-  --image-root /home/yyh/datasets/DriveLM/v1.1/images/nuscenes \
-  --output data/processed --purpose sft --cameras all
+export DATA_ROOT="$PWD/data/drivelm"
+export MODEL_DIR="$PWD/checkpoints/Qwen3-VL-8B-Instruct"
 ```
 
-输出训练和验证的 manifest、Swift 训练文件、原始问题结构文件、preparation.json。按原始场景划分，记录文件哈希和划分结果。
+`data/`、`checkpoints/`、`outputs/` 已被 Git 忽略。不要把原始数据、权重或访问凭据提交到仓库。
 
-## 准备官方无答案问题
+## 3. 获取真实数据与模型
+
+先阅读 [DriveLM 官方数据说明](https://github.com/OpenDriveLab/DriveLM/tree/main/challenge)，申请 [DriveLM 数据集](https://huggingface.co/datasets/OpenDriveLab/DriveLM)的访问权限，并在本机登录获批的 Hugging Face 账号。
 
 ```bash
-drivescene prepare --input /home/yyh/datasets/DriveLM/v1.1/v1_1_val_nus_q_only.json \
-  --image-root /home/yyh/datasets/DriveLM/v1.1/images/val_data \
+python -m pip install huggingface_hub
+hf auth login
+
+python scripts/download_assets.py \
+  --repo OpenDriveLab/DriveLM --kind dataset \
+  --revision ae973fbd4e8d4684af4ab234d504bd6c5e946868 \
+  --include v1_1_train_nus.json v1_1_val_nus_q_only.json \
+    drivelm_nus_imgs_train.zip drivelm_nus_imgs_val.zip \
+  --output "$DATA_ROOT"
+
+python scripts/extract_dataset.py \
+  "$DATA_ROOT/drivelm_nus_imgs_train.zip" \
+  "$DATA_ROOT/drivelm_nus_imgs_val.zip" \
+  --output "$DATA_ROOT/images"
+
+python scripts/download_assets.py \
+  --repo Qwen/Qwen3-VL-8B-Instruct \
+  --revision 0c351dd01ed87e9c1b53cbc748cba10e6187ff3b \
+  --output "$MODEL_DIR"
+```
+
+下载工具支持续传并校验固定版本的文件哈希，生成 `asset_inventory.json`；解压工具检查 ZIP 路径与条目 CRC。下载与解压不加载模型。
+
+官方两个图像包的目录不同，解压后应得到：
+
+```text
+data/drivelm/
+├── v1_1_train_nus.json
+├── v1_1_val_nus_q_only.json
+└── images/
+    ├── nuscenes/samples/CAM_*/    # 训练图片
+    └── val_data/CAM_*/            # 官方验证图片
+```
+
+## 4. 准备训练集和本地验证集
+
+```bash
+drivescene prepare --input "$DATA_ROOT/v1_1_train_nus.json" \
+  --image-root "$DATA_ROOT/images/nuscenes" \
+  --output data/processed --purpose sft \
+  --cameras all --val-fraction 0.1 --seed 42
+```
+
+输出包括：
+
+- `train_manifest.jsonl`、`val_manifest.jsonl`：样本、标签、图片及原始元数据。
+- `train_swift.jsonl`、`val_swift.jsonl`：供 ms-swift 使用的图文训练数据。
+- `frame_graphs.jsonl`：被选中帧的完整原始问题及结构字段。
+- `preparation.json`：来源哈希、文件哈希、场景划分、参数与数量。
+
+训练和验证按 **scene（场景）** 划分，避免同一场景的问题混入两个集合。六视角模式要求图片齐全且可解码。`--cameras front` 可用于前视角对照实验；`--limit-per-split` 可限制调试样本数。`--allow-missing-images` 仅用于格式检查，不能用于实际训练准备。
+
+## 5. 准备官方无答案问题
+
+```bash
+drivescene prepare --input "$DATA_ROOT/v1_1_val_nus_q_only.json" \
+  --image-root "$DATA_ROOT/images/val_data" \
   --output data/challenge --purpose infer --cameras all
 ```
 
-这里只处理数据，不会执行推理。输出 infer_manifest.jsonl；不能用这个无答案文件计算本地准确率。
+生成 `infer_manifest.jsonl`，保留全部问题和原始官方 ID，不生成训练文件。这个命令只准备数据，不执行模型推理。官方问题集没有公开答案，不能直接计算本地准确率。
 
-官方 v1.1 无答案文件包含 1 条空问题。项目保留其原始编号并标记 question_valid=false；训练准备会排除空问题。将来批量推理遇到这条记录时会保存空预测及异常状态，不会改写问题或为它调用模型生成。
+v1.1 源文件中的空答案和空问题会被显式处理：空答案不用于有监督训练；空问题保留官方 ID 并标记 `question_valid=false`。批量推理遇到空问题时保存空预测及异常状态，不为它调用模型生成。
 
-## 评测与官方结果导出
+## 6. 运行基座模型或 LoRA 推理
+
+需要 NVIDIA GPU 和兼容的 PyTorch/CUDA 环境。可在独立 Python 3.11 环境中参考 [GPU 关键依赖版本](requirements/gpu-cu128.txt)安装，再安装项目扩展；该组合的实际显存需求仍待验证。执行前用 `CUDA_VISIBLE_DEVICES` 明确选择可用 GPU。
+
+```bash
+python -m pip install -e '.[vision,lora]'
+
+drivescene infer --manifest data/processed/val_manifest.jsonl \
+  --model "$MODEL_DIR" --local-files-only \
+  --min-pixels 65536 --max-pixels 262144 \
+  --limit 0 --output outputs/predictions.jsonl
+```
+
+`--limit 0` 处理整个清单；`--limit 5` 只做少量检查。LoRA 微调后，在命令中增加 `--adapter checkpoints/your_adapter`，加载对应检查点。图像预算、设备映射等参数可通过 `drivescene infer --help` 查看。
+
+## 7. 评测与官方结果导出
 
 ```bash
 drivescene eval --manifest data/processed/val_manifest.jsonl \
   --predictions outputs/predictions.jsonl
+
+# 如需明确把漏答计为错误
+drivescene eval --manifest data/processed/val_manifest.jsonl \
+  --predictions outputs/predictions.jsonl --missing-policy wrong
+```
+
+默认拒绝漏答、重复 ID 和未知 ID，并报告覆盖率。少量调试预测不能直接用于完整验证集的严格评测。本地指标是答案完全匹配率和词语重合得分，不等同于官方综合得分。
+
+如需生成官方格式结果，先对 `data/challenge/infer_manifest.jsonl` 完成推理，并将输出保存为 `outputs/challenge_predictions.jsonl`，再执行：
+
+```bash
 drivescene export-official --manifest data/challenge/infer_manifest.jsonl \
-  --predictions outputs/challenge_predictions.jsonl --output outputs/official_output.json
+  --predictions outputs/challenge_predictions.jsonl \
+  --output outputs/official_output.json
 ```
 
-本地指标仍是答案完全匹配率和词语重合得分。eval-tag0 只计算已有 tag=0 标记题目的严格字符串匹配，不包含官方图依赖筛选和综合分数。完整差异见 [DriveLM 对齐说明](docs/DRIVELM_COMPATIBILITY.md)。
+导出要求清单内预测完整。`eval-tag0` 只支持已有题型标签和答案的记录，不包含官方图筛选及综合分数。完整边界见 [DriveLM 对齐说明](docs/DRIVELM_COMPATIBILITY.md)。
 
-## 训练计划检查
+## 8. 检查 LoRA 训练计划
 
 ```bash
-bash scripts/train_lora.sh --dry-run
+bash scripts/train_lora.sh --dry-run --model "$MODEL_DIR"
 ```
 
-默认只检查并打印命令，不加载模型。实际配置在 configs/lora_qwen3vl8b.json，支持命令行覆盖。将来执行训练时还需显式传入 --execute、进入 tmux，并指定空闲 GPU。当前没有证明这套 8B 六视角配置能在两张 3090 上稳定训练；包版本也尚未完成 GPU 环境联合验证。
+默认读取 `configs/lora_qwen3vl8b.json`，检查训练/验证文件、图片校验状态、场景隔离及数据哈希，只打印命令，不加载模型。可使用 `--config` 或命令行参数调整配置。
 
-项目沿用 Qwen3-VL，并按 DriveLM 的数据与结果接口组织。它没有完整复制官方旧版 LLaMA-Adapter 工程，也没有宣称达到原模型效果。
+实际训练还需显式传入 `--execute`、进入 tmux、保持代码提交干净，并设置与 GPU 数量对应的 `CUDA_VISIBLE_DEVICES`。执行时保存运行参数、依赖版本和数据哈希；`--resume-from-checkpoint` 支持续训。不要将该起始配置理解为已验证的显存适配方案。
 
-## 后续如何运行模型
-
-以下是将来 GPU 阶段的使用说明，本次未执行。先在独立 Python 3.11 环境中按 requirements/gpu-cu128.txt 安装依赖，再安装项目及推理扩展。执行前通过 CUDA_VISIBLE_DEVICES 明确选择可用 GPU。
+## 9. 本地 HTTP 接口
 
 ```bash
-pip install -e '.[vision,lora,api]'
-drivescene infer --manifest data/processed/val_manifest.jsonl \
-  --model /home/yyh/models/Qwen3-VL-8B-Instruct \
-  --local-files-only --min-pixels 65536 --max-pixels 262144 \
-  --limit 0 --output outputs/predictions.jsonl
-```
-
-将来有 LoRA 检查点后，在同一条命令增加 --adapter 并指定检查点目录。--limit 0 处理整个清单；--limit 5 只做少量检查，不能直接拿它的部分输出与完整验证集计算严格评测。
-
-## 本地接口如何使用
-
-```bash
-pip install -e '.[api]'
+python -m pip install -e '.[api]'
 DRS_MANIFEST=data/challenge/infer_manifest.jsonl \
   uvicorn drivescene.api:app --host 127.0.0.1 --port 8000
 ```
 
-GET /health 查看状态，GET /v1/samples 查看样本，两者不加载模型。POST /v1/reason 接收 sample_id；真正的 GPU 回答还需安装推理依赖、配置 DRS_MODEL_ID，并显式设置 DRS_ENABLE_MODEL=1。DRS_ADAPTER 可指定 LoRA 参数。本次没有启动该服务。
+- `GET /health`：服务状态。
+- `GET /v1/samples`：查询可用样本及其 ID。
+- `POST /v1/reason`：请求体提供 `sample_id`，回答该样本的问题。
+
+前两个接口不加载模型。模型回答还需安装推理依赖，配置 `DRS_MODEL_ID` 并设置 `DRS_ENABLE_MODEL=1`；`DRS_ADAPTER` 可指定 LoRA 检查点。
+
+## 上游与许可
+
+项目使用独立实现的数据适配器和 Qwen3-VL 接口，参考版本见 `configs/upstream.json`。仓库不包含 DriveLM 标注、图像或模型权重。DriveLM 语言标注采用 CC BY-NC-SA 4.0，nuScenes 另有数据条款；详见 [上游说明](docs/UPSTREAM.md)。项目原创代码的许可证尚未选定。

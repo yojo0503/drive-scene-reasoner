@@ -1,7 +1,9 @@
 # Dedicated Linux Python 3.11 recipe; distributions verified on official PyPI.
-# GPU execution has not been validated.
+# Imports, CUDA tensor smoke test and CPU tests validated on 2026-10-22.
+# Full model inference, training and multi-GPU execution remain unvalidated.
 # First install torch with: pip install torch==2.8.0 --index-url https://download.pytorch.org/whl/cu128
 torch==2.8.0
+torchvision==0.23.0
 transformers==4.57.6
 accelerate==1.12.0
 peft==0.18.1

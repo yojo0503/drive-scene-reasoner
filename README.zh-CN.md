@@ -2,7 +2,7 @@
 
 基于 Qwen3-VL 的驾驶场景多模态问答项目，参考 DriveLM-nuScenes 的数据结构和结果协议，提供六视角数据准备、问答推理接口、LoRA 微调入口与评测工具。
 
-[English](README.md) · [更新记录](CHANGELOG.md) · [DriveLM 对齐说明](docs/DRIVELM_COMPATIBILITY.md)
+[English](README.md) · [更新记录](CHANGELOG.md) · [DriveLM 对齐说明](docs/DRIVELM_COMPATIBILITY.md) · [逐文件说明](docs/FILE_GUIDE.zh-CN.md) · [GPU 环境](docs/GPU_ENVIRONMENT.md)
 
 ## 当前目标与进度
 
@@ -146,7 +146,7 @@ v1.1 源文件中的空答案和空问题会被显式处理：空答案不用于
 
 ## 6. 运行基座模型或 LoRA 推理
 
-需要 NVIDIA GPU 和兼容的 PyTorch/CUDA 环境。可在独立 Python 3.11 环境中参考 [GPU 关键依赖版本](requirements/gpu-cu128.txt)安装，再安装项目扩展；该组合的实际显存需求仍待验证。执行前用 `CUDA_VISIBLE_DEVICES` 明确选择可用 GPU。
+需要 NVIDIA GPU 和兼容的 PyTorch/CUDA 环境。可在独立 Python 3.11 环境中参考 [GPU 关键依赖版本](requirements/gpu-cu128.txt)安装，再安装项目扩展；该组合已通过依赖导入和 CUDA 基础检查，见 [环境验证记录](docs/GPU_ENVIRONMENT.md)；完整模型运行与实际显存需求仍待验证。执行前用 `CUDA_VISIBLE_DEVICES` 明确选择可用 GPU。
 
 ```bash
 python -m pip install -e '.[vision,lora]'

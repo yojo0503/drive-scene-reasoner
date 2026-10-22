@@ -124,7 +124,7 @@ Empty answers are excluded from SFT. Blank questions retain their official IDs w
 
 ## 6. Run the base model or a LoRA adapter
 
-Use a compatible NVIDIA GPU/PyTorch/CUDA environment. A dedicated Python 3.11 environment can use the [pinned GPU recipe](requirements/gpu-cu128.txt); runtime compatibility and memory fit still require validation. Explicitly select available devices with `CUDA_VISIBLE_DEVICES` before GPU execution.
+Use a compatible NVIDIA GPU/PyTorch/CUDA environment. A dedicated Python 3.11 environment can use the [pinned GPU recipe](requirements/gpu-cu128.txt); basic environment checks now pass (see [verification](docs/GPU_ENVIRONMENT.md)); full model execution and memory fit still require validation. Explicitly select available devices with `CUDA_VISIBLE_DEVICES` before GPU execution.
 
 ```bash
 python -m pip install -e '.[vision,lora]'
@@ -182,3 +182,7 @@ DRS_MANIFEST=data/challenge/infer_manifest.jsonl \
 ## Attribution
 
 Upstream references are pinned in `configs/upstream.json`. No DriveLM annotations, images or model weights are bundled. DriveLM language data is CC BY-NC-SA 4.0; nuScenes has separate terms. See [upstream notices](docs/UPSTREAM.md). This repository's original code has no project license selected yet.
+
+## Environment and source guide
+
+See [GPU environment setup and verification](docs/GPU_ENVIRONMENT.md) and the [Chinese file-by-file guide](docs/FILE_GUIDE.zh-CN.md).

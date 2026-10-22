@@ -209,3 +209,5 @@ DRS_MANIFEST=data/challenge/infer_manifest.jsonl \
 ## 上游与许可
 
 项目使用独立实现的数据适配器和 Qwen3-VL 接口，参考版本见 `configs/upstream.json`。仓库不包含 DriveLM 标注、图像或模型权重。DriveLM 语言标注采用 CC BY-NC-SA 4.0，nuScenes 另有数据条款；详见 [上游说明](docs/UPSTREAM.md)。项目原创代码的许可证尚未选定。
+
+最新 GPU 实测：单卡六视角推理、双卡 LoRA 短训练及保存检查点已通过。默认训练每图上限调整为 128 token；完整长训练和模型质量尚待评估。见 [显存适配报告](docs/VRAM_FIT.md)。

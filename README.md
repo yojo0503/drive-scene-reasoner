@@ -186,3 +186,5 @@ Upstream references are pinned in `configs/upstream.json`. No DriveLM annotation
 ## Environment and source guide
 
 See [GPU environment setup and verification](docs/GPU_ENVIRONMENT.md) and the [Chinese file-by-file guide](docs/FILE_GUIDE.zh-CN.md).
+
+GPU smoke validation now covers six-view inference, two-GPU LoRA updates, evaluation and checkpoint saving. The default training image budget is 128 tokens. Full training and model quality remain unvalidated. See [VRAM results](docs/VRAM_FIT.md).

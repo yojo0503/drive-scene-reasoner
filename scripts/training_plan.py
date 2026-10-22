@@ -67,7 +67,7 @@ def build_plan(args):
         "python": sys.version, "packages": packages, "preparation": report, "code_dirty": bool(status.stdout.strip()),
         "train_sha256": sha256_file(train), "val_sha256": sha256_file(val),
         "model": args.model, "model_inventory_sha256": sha256_file(Path(args.model) / "asset_inventory.json") if (Path(args.model) / "asset_inventory.json").is_file() else None,
-        "status": "plan_only", "note": "GPU recipe is not memory-validated. Swift deletes examples exceeding max_length; inspect preprocessing counts before accepting a run."}
+        "status": "plan_only", "note": "Short-run RTX 3090 memory checks are documented in docs/VRAM_FIT.md; full-length runs still require monitoring. Swift deletes examples exceeding max_length; inspect preprocessing counts before accepting a run."}
 
 
 def main(argv=None):

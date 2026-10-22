@@ -539,3 +539,7 @@ challenge/data/train_sample.json
 | `requirements/gpu-cu128.lock.txt` | 已安装第三方包的完整版本快照，不含项目 editable 路径。 |
 
 `.gitignore` 现已忽略 `.venv-gpu/`；两个 README 增加文档入口，关键依赖配方补充 torchvision。环境已通过基础检查，真实模型训练/生成仍未验证；以 GPU_ENVIRONMENT.md 为最新状态说明。
+
+## 11. 显存适配更新（2026-10-22）
+
+新增 `docs/VRAM_FIT.md`（真实推理、短训练和保存的实测及运行边界）与 `docs/benchmarks/vram-fit-20261022.json`（精简量化数据）。默认训练配置的 max_image_tokens 从 256 改为 128。原有章节中的未执行状态属于历史快照，最新结论以显存报告为准。

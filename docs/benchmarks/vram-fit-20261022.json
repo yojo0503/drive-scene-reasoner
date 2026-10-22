@@ -1,0 +1,97 @@
+{
+  "date": "2026-10-22",
+  "code_commit": "968e028c49e22b0821e325a6117221b5e87f7dc6",
+  "gpu": "RTX 3090 24 GiB",
+  "pytorch_memory_fraction": 0.78,
+  "inference": [
+    {
+      "max_image_tokens": 64,
+      "max_new_tokens": 128,
+      "question_chars": 44,
+      "status": "ok",
+      "seconds": 15.23,
+      "peak_allocated_gib": 16.466311931610107,
+      "peak_reserved_gib": 16.525390625
+    },
+    {
+      "max_image_tokens": 64,
+      "max_new_tokens": 128,
+      "question_chars": 620,
+      "status": "ok",
+      "seconds": 5.69,
+      "peak_allocated_gib": 16.49191188812256,
+      "peak_reserved_gib": 16.51171875
+    },
+    {
+      "max_image_tokens": 128,
+      "max_new_tokens": 128,
+      "question_chars": 44,
+      "status": "ok",
+      "seconds": 7.75,
+      "peak_allocated_gib": 16.57087230682373,
+      "peak_reserved_gib": 16.607421875
+    },
+    {
+      "max_image_tokens": 128,
+      "max_new_tokens": 128,
+      "question_chars": 620,
+      "status": "ok",
+      "seconds": 6.97,
+      "peak_allocated_gib": 16.596473217010498,
+      "peak_reserved_gib": 16.626953125
+    },
+    {
+      "max_image_tokens": 256,
+      "max_new_tokens": 128,
+      "question_chars": 44,
+      "status": "ok",
+      "seconds": 7.33,
+      "peak_allocated_gib": 16.80090856552124,
+      "peak_reserved_gib": 16.841796875
+    },
+    {
+      "max_image_tokens": 256,
+      "max_new_tokens": 128,
+      "question_chars": 620,
+      "status": "ok",
+      "seconds": 5.33,
+      "peak_allocated_gib": 16.826507568359375,
+      "peak_reserved_gib": 16.861328125
+    }
+  ],
+  "training256": [
+    {
+      "rank": 0,
+      "status": "ok",
+      "seconds": 242.43182730674744,
+      "peak_allocated_gib": 17.155025482177734,
+      "peak_reserved_gib": 17.6484375
+    },
+    {
+      "rank": 1,
+      "status": "ok",
+      "seconds": 242.60476231575012,
+      "peak_allocated_gib": 17.201109886169434,
+      "peak_reserved_gib": 17.70703125
+    }
+  ],
+  "training128": [
+    {
+      "rank": 0,
+      "status": "ok",
+      "seconds": 255.05300736427307,
+      "peak_allocated_gib": 15.101411819458008,
+      "peak_reserved_gib": 16.89453125
+    },
+    {
+      "rank": 1,
+      "status": "ok",
+      "seconds": 255.17249131202698,
+      "peak_allocated_gib": 15.155511856079102,
+      "peak_reserved_gib": 17.03125
+    }
+  ],
+  "checkpoint_saved": true,
+  "full_training_validated": false,
+  "checkpoint_reload_validated": false
+}
